@@ -1,0 +1,1 @@
+1d98b96f04e4b7181fe9dcc7809e19f4299a9dbbe0b37c34b4c7c8218f82aa48  ./target/wasm32-unknown-unknown/release/dao_token.wasm
