@@ -1,7 +1,5 @@
 use cosmwasm_std::{Decimal, StdError, StdResult, Uint128};
 
-use crate::msg::PollExecuteMsg;
-
 use cosmwasm_std::{to_binary, Addr, Order, QuerierWrapper, QueryRequest, WasmQuery};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -29,20 +27,15 @@ impl From<OrderBy> for Order {
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct ConfigResponse {
     pub owner: String,
-    pub cw20_token: String,
     pub quorum: Decimal,
     pub threshold: Decimal,
     pub voting_period: u64,
-    pub timelock_period: u64,
-    pub proposal_deposit: Uint128,
-    pub snapshot_period: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct StateResponse {
     pub poll_count: u64,
     pub total_share: Uint128,
-    pub total_deposit: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
@@ -54,12 +47,10 @@ pub struct PollResponse {
     pub title: String,
     pub description: String,
     pub link: Option<String>,
-    pub deposit_amount: Uint128,
-    pub execute_data: Option<Vec<PollExecuteMsg>>,
     pub yes_votes: Uint128, // balance
     pub no_votes: Uint128,  // balance
-    pub staked_amount: Option<Uint128>,
-    pub total_balance_at_end_poll: Option<Uint128>,
+    pub total_share_at_start_poll: Uint128,
+    pub total_share_at_end_poll: Option<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]

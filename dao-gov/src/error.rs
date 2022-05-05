@@ -60,6 +60,18 @@ pub enum ContractError {
     #[error("User has already voted")]
     AlreadyVoted {},
 
+    #[error("User has not yet voted")]
+    NotYetVoted {},
+
+    #[error("User has already delegated")]
+    AlreadyDelegated {},
+
+    #[error("User has not yet delegated")]
+    NotYetDelegated {},
+
+    #[error("Share is locked in in progress polls")]
+    ShareLocked {},
+
     #[error("Expire height has not been reached")]
     PollNotExpired {},
 

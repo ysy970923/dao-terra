@@ -1,6 +1,6 @@
+use crate::utils::{OrderBy, PollStatus, VoteOption};
 use cosmwasm_std::{Binary, Decimal, Uint128};
 use cw20::Cw20ReceiveMsg;
-use crate::utils::{PollStatus, VoteOption, OrderBy};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -9,63 +9,69 @@ use serde::{Deserialize, Serialize};
     "cw20_token": "terra1lzfrsy38l34uzrlma3fm3hsktv848pcgdnlcj7",
     "quorum": "0.1",
     "threshold": "0.5",
-    "voting_period": 50,
-    "timelock_period": 50,
-    "proposal_deposit": "10",
-    "snapshot_period": 30
+    "voting_period": 100
 }
 **/
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub cw20_token: String,
+    pub cw721_token: String,
     pub quorum: Decimal,
     pub threshold: Decimal,
     pub voting_period: u64,
-    pub timelock_period: u64,
-    pub proposal_deposit: Uint128,
-    pub snapshot_period: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Receive(Cw20ReceiveMsg),
-    ExecutePollMsgs {
-        poll_id: u64,
+    Mint {
+        recipient: String,
+        amount: Uint128,
     },
+    InstantBurn {
+        amount: Uint128,
+    },
+    TransferFrom {
+        owner: String,
+        recipient: String,
+        amount: Uint128,
+    },
+    DelegateVote {
+        delegator: String,
+    },
+    UnDelegateVote {},
     UpdateConfig {
         owner: Option<String>,
-        cw20_token: Option<String>,
         quorum: Option<Decimal>,
         threshold: Option<Decimal>,
         voting_period: Option<u64>,
-        timelock_period: Option<u64>,
-        proposal_deposit: Option<Uint128>,
-        snapshot_period: Option<u64>,
+    },
+    CreatePoll {
+        title: String,
+        description: String,
+        link: Option<String>,
     },
     /*
     {"cast_vote": {
         "poll_id": 2,
         "vote": "yes",
-        "amount": "1"
+        "amount": "100000"
         }
-    } 
+    }
     */
     CastVote {
         poll_id: u64,
         vote: VoteOption,
-        amount: Uint128,
     },
-    WithdrawVotingTokens {
-        amount: Option<Uint128>,
+    CancelVote {
+        poll_id: u64,
     },
+    /*
+    {"end_poll": {
+        "poll_id": 2
+        }
+    }
+    */
     EndPoll {
-        poll_id: u64,
-    },
-    ExecutePoll {
-        poll_id: u64,
-    },
-    SnapshotPoll {
         poll_id: u64,
     },
 }
@@ -105,12 +111,6 @@ pub enum QueryMsg {
 #[serde(rename_all = "snake_case")]
 pub enum Cw20HookMsg {
     StakeVotingTokens {},
-    CreatePoll {
-        title: String,
-        description: String,
-        link: Option<String>,
-        execute_msgs: Option<Vec<PollExecuteMsg>>,
-    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

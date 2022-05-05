@@ -7,7 +7,7 @@ use cosmwasm_storage::{
     Singleton,
 };
 
-use crate::utils::{PollStatus, VoteInfo, OrderBy};
+use crate::utils::{OrderBy, PollStatus, VoteInfo};
 use std::cmp::Ordering;
 
 static KEY_CONFIG: &[u8] = b"config";
@@ -22,30 +22,30 @@ static PREFIX_BANK: &[u8] = b"bank";
 /// default information & parameters for the contract
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
-    pub owner: CanonicalAddr,   // owner of the contract
-    pub cw20_token: CanonicalAddr, // cw20 token contract
+    pub owner: CanonicalAddr, // owner of the contract
+    pub cw721_token: CanonicalAddr,
     pub quorum: Decimal,    // quorum
     pub threshold: Decimal, // threshold for ratio of yes votes
     pub voting_period: u64,
-    pub timelock_period: u64,   // minimum timelock needed between end and execution
-    pub proposal_deposit: Uint128,  // amount of deposit required for proposal
-    pub snapshot_period: u64,
 }
 
 // state for the contract
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct State {
-    pub contract_addr: CanonicalAddr,   // address of this contract
-    pub poll_count: u64,    // total polls proposed
-    pub total_share: Uint128,   // total shares
-    pub total_deposit: Uint128, // total deposits
+    pub contract_addr: CanonicalAddr, // address of this contract
+    pub poll_count: u64,              // total polls proposed
+    pub total_share: Uint128,         // total shares
 }
 
-// token manager maps to each client
+/// token manager maps to each address
+/// address: token_manager
 #[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct TokenManager {
-    pub share: Uint128,                        // total staked balance
-    pub locked_balance: Vec<(u64, VoteInfo)>, // maps poll_id to weight voted
+    pub share: Uint128,                     // share (usually sqrt(amount))
+    pub balance: Uint128,                   // balance (balance of warrant token)
+    pub locked_share: Vec<(u64, VoteInfo)>, // maps poll_id to weight voted
+    pub delegate_to: Option<CanonicalAddr>,
+    pub delegated_from: Vec<CanonicalAddr>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -59,10 +59,8 @@ pub struct Poll {
     pub title: String,
     pub description: String,
     pub link: Option<String>,
-    pub execute_data: Option<Vec<ExecuteData>>,
-    pub deposit_amount: Uint128,
-    pub total_balance_at_end_poll: Option<Uint128>,
-    pub staked_amount: Option<Uint128>,
+    pub total_share_at_end_poll: Option<Uint128>,
+    pub total_share_at_start_poll: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]

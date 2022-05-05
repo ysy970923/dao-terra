@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdError,
-    StdResult, Uint128,
+    to_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult,
+    Uint128,
 };
 use cw2::set_contract_version;
 
@@ -11,11 +11,13 @@ use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{config_store, state_store, Config, State};
 
 use crate::execute::{
-    cast_vote, end_poll, execute_poll, execute_poll_messages, receive_cw20,
-    snapshot_poll, update_config, withdraw_voting_tokens,
+    cancel_vote, cast_vote, create_poll, delegate_vote, end_poll, instant_burn, mint,
+    transfer_from, undelegate_vote, update_config,
 };
 
-use crate::query::{query_config, query_poll, query_polls, query_state, query_voters, query_staker};
+use crate::query::{
+    query_config, query_poll, query_polls, query_staker, query_state, query_voters,
+};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:dao-gov";
@@ -33,21 +35,17 @@ pub fn instantiate(
     validate_threshold(msg.threshold)?;
 
     let config = Config {
-        cw20_token: deps.api.addr_canonicalize(&msg.cw20_token)?,
         owner: deps.api.addr_canonicalize(info.sender.as_str())?,
+        cw721_token: deps.api.addr_canonicalize(&msg.cw721_token)?,
         quorum: msg.quorum,
         threshold: msg.threshold,
         voting_period: msg.voting_period,
-        timelock_period: msg.timelock_period,
-        proposal_deposit: msg.proposal_deposit,
-        snapshot_period: msg.snapshot_period,
     };
 
     let state = State {
         contract_addr: deps.api.addr_canonicalize(env.contract.address.as_str())?,
         poll_count: 0,
         total_share: Uint128::zero(),
-        total_deposit: Uint128::zero(),
     };
 
     config_store(deps.storage).save(&config)?;
@@ -64,38 +62,29 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Receive(msg) => receive_cw20(deps, env, info, msg),
-        ExecuteMsg::ExecutePollMsgs { poll_id } => execute_poll_messages(deps, env, info, poll_id),
+        ExecuteMsg::Mint { recipient, amount } => mint(deps, info, recipient, amount),
+        ExecuteMsg::InstantBurn { amount } => instant_burn(deps, info, amount),
+        ExecuteMsg::TransferFrom {
+            owner,
+            recipient,
+            amount,
+        } => transfer_from(deps, info, owner, recipient, amount),
+        ExecuteMsg::DelegateVote { delegator } => delegate_vote(deps, info, delegator),
+        ExecuteMsg::UnDelegateVote {} => undelegate_vote(deps, info),
+        ExecuteMsg::CreatePoll {
+            title,
+            description,
+            link,
+        } => create_poll(deps, env, info, title, description, link),
         ExecuteMsg::UpdateConfig {
             owner,
-            cw20_token,
             quorum,
             threshold,
             voting_period,
-            timelock_period,
-            proposal_deposit,
-            snapshot_period,
-        } => update_config(
-            deps,
-            info,
-            owner,
-            cw20_token,
-            quorum,
-            threshold,
-            voting_period,
-            timelock_period,
-            proposal_deposit,
-            snapshot_period,
-        ),
-        ExecuteMsg::WithdrawVotingTokens { amount } => withdraw_voting_tokens(deps, info, amount),
-        ExecuteMsg::CastVote {
-            poll_id,
-            vote,
-            amount,
-        } => cast_vote(deps, env, info, poll_id, vote, amount),
+        } => update_config(deps, info, owner, quorum, threshold, voting_period),
+        ExecuteMsg::CastVote { poll_id, vote } => cast_vote(deps, env, info, poll_id, vote),
+        ExecuteMsg::CancelVote { poll_id } => cancel_vote(deps, env, info, poll_id),
         ExecuteMsg::EndPoll { poll_id } => end_poll(deps, env, poll_id),
-        ExecuteMsg::ExecutePoll { poll_id } => execute_poll(deps, env, poll_id),
-        ExecuteMsg::SnapshotPoll { poll_id } => snapshot_poll(deps, env, poll_id),
     }
 }
 

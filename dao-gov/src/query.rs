@@ -1,14 +1,13 @@
 use cosmwasm_std::{Deps, StdResult, Uint128};
 
 use crate::error::ContractError;
-use crate::utils::{
-    query_token_balance, ConfigResponse, OrderBy, PollResponse, PollStatus, PollsResponse, StakerResponse,
-    StateResponse, VotersResponse, VotersResponseItem,
-};
-use crate::msg::PollExecuteMsg;
 use crate::state::{
     bank_read, config_read, poll_read, read_poll_voters, read_polls, state_read, Config, Poll,
     State,
+};
+use crate::utils::{
+    ConfigResponse, OrderBy, PollResponse, PollStatus, PollsResponse, StakerResponse,
+    StateResponse, VotersResponse, VotersResponseItem,
 };
 
 /// query configurations
@@ -16,13 +15,9 @@ pub fn query_config(deps: Deps) -> Result<ConfigResponse, ContractError> {
     let config: Config = config_read(deps.storage).load()?;
     Ok(ConfigResponse {
         owner: deps.api.addr_humanize(&config.owner)?.to_string(),
-        cw20_token: deps.api.addr_humanize(&config.cw20_token)?.to_string(),
         quorum: config.quorum,
         threshold: config.threshold,
         voting_period: config.voting_period,
-        timelock_period: config.timelock_period,
-        proposal_deposit: config.proposal_deposit,
-        snapshot_period: config.snapshot_period,
     })
 }
 
@@ -32,7 +27,6 @@ pub fn query_state(deps: Deps) -> Result<StateResponse, ContractError> {
     Ok(StateResponse {
         poll_count: state.poll_count,
         total_share: state.total_share,
-        total_deposit: state.total_deposit,
     })
 }
 
@@ -44,8 +38,6 @@ pub fn query_poll(deps: Deps, poll_id: u64) -> Result<PollResponse, ContractErro
     }
     .unwrap();
 
-    let mut data_list: Vec<PollExecuteMsg> = vec![];
-
     Ok(PollResponse {
         id: poll.id,
         creator: deps.api.addr_humanize(&poll.creator)?.to_string(),
@@ -54,24 +46,10 @@ pub fn query_poll(deps: Deps, poll_id: u64) -> Result<PollResponse, ContractErro
         title: poll.title,
         description: poll.description,
         link: poll.link,
-        deposit_amount: poll.deposit_amount,
-        execute_data: if let Some(exe_msgs) = poll.execute_data.clone() {
-            for msg in exe_msgs {
-                let execute_data = PollExecuteMsg {
-                    order: msg.order,
-                    contract: deps.api.addr_humanize(&msg.contract)?.to_string(),
-                    msg: msg.msg,
-                };
-                data_list.push(execute_data)
-            }
-            Some(data_list)
-        } else {
-            None
-        },
         yes_votes: poll.yes_votes,
         no_votes: poll.no_votes,
-        staked_amount: poll.staked_amount,
-        total_balance_at_end_poll: poll.total_balance_at_end_poll,
+        total_share_at_start_poll: poll.total_share_at_start_poll,
+        total_share_at_end_poll: poll.total_share_at_end_poll,
     })
 }
 
@@ -96,26 +74,10 @@ pub fn query_polls(
                 title: poll.title.to_string(),
                 description: poll.description.to_string(),
                 link: poll.link.clone(),
-                deposit_amount: poll.deposit_amount,
-                execute_data: if let Some(exe_msgs) = poll.execute_data.clone() {
-                    let mut data_list: Vec<PollExecuteMsg> = vec![];
-
-                    for msg in exe_msgs {
-                        let execute_data = PollExecuteMsg {
-                            order: msg.order,
-                            contract: deps.api.addr_humanize(&msg.contract)?.to_string(),
-                            msg: msg.msg,
-                        };
-                        data_list.push(execute_data)
-                    }
-                    Some(data_list)
-                } else {
-                    None
-                },
                 yes_votes: poll.yes_votes,
                 no_votes: poll.no_votes,
-                staked_amount: poll.staked_amount,
-                total_balance_at_end_poll: poll.total_balance_at_end_poll,
+                total_share_at_start_poll: poll.total_share_at_start_poll,
+                total_share_at_end_poll: poll.total_share_at_end_poll,
             })
         })
         .collect();
@@ -170,14 +132,13 @@ pub fn query_voters(
 
 pub fn query_staker(deps: Deps, address: String) -> StdResult<StakerResponse> {
     let addr_raw = deps.api.addr_canonicalize(&address).unwrap();
-    let config: Config = config_read(deps.storage).load()?;
     let state: State = state_read(deps.storage).load()?;
     let mut token_manager = bank_read(deps.storage)
         .may_load(addr_raw.as_slice())?
         .unwrap_or_default();
 
     // leave only in-progress polls
-    token_manager.locked_balance.retain(|(poll_id, _)| {
+    token_manager.locked_share.retain(|(poll_id, _)| {
         let poll: Poll = poll_read(deps.storage)
             .load(&poll_id.to_be_bytes())
             .unwrap();
@@ -185,22 +146,13 @@ pub fn query_staker(deps: Deps, address: String) -> StdResult<StakerResponse> {
         poll.status == PollStatus::InProgress
     });
 
-    let total_balance = query_token_balance(
-        &deps.querier,
-        deps.api.addr_humanize(&config.cw20_token)?,
-        deps.api.addr_humanize(&state.contract_addr)?,
-    )?
-    .checked_sub(state.total_deposit)?;
-
     Ok(StakerResponse {
         balance: if !state.total_share.is_zero() {
-            token_manager
-                .share
-                .multiply_ratio(total_balance, state.total_share)
+            token_manager.share
         } else {
             Uint128::zero()
         },
         share: token_manager.share,
-        locked_balance: token_manager.locked_balance,
+        locked_balance: token_manager.locked_share,
     })
 }
