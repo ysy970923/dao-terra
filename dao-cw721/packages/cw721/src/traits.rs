@@ -45,6 +45,15 @@ where
         token_id: String,
         msg: Binary,
     ) -> Result<Response<C>, Self::Err>;
+
+    fn update_config(
+        &self,
+        deps: DepsMut,
+        env: Env,
+        info: MessageInfo,
+        owner: Option<String>,
+        gov_contract: Option<String>,
+    ) -> Result<Response<C>, Self::Err>;
 }
 
 pub trait Cw721Query<T>

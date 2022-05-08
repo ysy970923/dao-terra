@@ -25,22 +25,22 @@ pub fn receive_cw721(
     }
     match from_binary(&cw721_msg.msg) {
         Ok(Cw721HookMsg::CastVote { poll_id, vote }) => {
-            cast_vote(deps, env, cw721_msg.sender, poll_id, vote)
+            cast_vote(deps, env, cw721_msg.token_id, poll_id, vote)
         }
         Ok(Cw721HookMsg::CancelVote { poll_id }) => {
-            cancel_vote(deps, env, cw721_msg.sender, poll_id)
+            cancel_vote(deps, env, cw721_msg.token_id, poll_id)
         }
         Ok(Cw721HookMsg::CreatePoll {
             title,
             description,
             link,
-        }) => create_poll(deps, env, cw721_msg.sender, title, description, link),
+        }) => create_poll(deps, env, cw721_msg.token_id, title, description, link),
         Ok(Cw721HookMsg::EndPoll { poll_id }) => end_poll(deps, env, poll_id),
         Ok(Cw721HookMsg::DelegateVote { delegator }) => {
-            delegate_vote(deps, cw721_msg.sender, delegator)
+            delegate_vote(deps, cw721_msg.token_id, delegator)
         }
-        Ok(Cw721HookMsg::UnDelegateVote {}) => undelegate_vote(deps, cw721_msg.sender),
-        Ok(Cw721HookMsg::Exit {}) => exit(deps, cw721_msg.sender),
+        Ok(Cw721HookMsg::UnDelegateVote {}) => undelegate_vote(deps, cw721_msg.token_id),
+        Ok(Cw721HookMsg::Exit {}) => exit(deps, cw721_msg.token_id),
         _ => Err(ContractError::DataShouldBeGiven {}),
     }
 }
@@ -122,7 +122,7 @@ fn cast_vote(
         return Err(ContractError::AlreadyVoted {});
     }
 
-    let mut token_manager = bank_read(deps.storage)
+    let token_manager = bank_read(deps.storage)
         .may_load(voter_key)?
         .unwrap_or_default();
 
@@ -135,13 +135,8 @@ fn cast_vote(
     let mut total_amount = cast_single_vote(deps.storage, voter_key, &mut a_poll, vote.clone())?;
 
     // cast delegated votes
-    let delegated_from = token_manager.delegated_from.clone();
-    for (i, id) in delegated_from.iter().enumerate() {
+    for id in token_manager.delegated_from.iter() {
         let amount = cast_single_vote(deps.storage, id.as_bytes(), &mut a_poll, vote.clone())?;
-        // remove member if amount is 0 (0 amount: not a dao member)
-        if amount == 0 {
-            token_manager.delegated_from.swap_remove(i);
-        }
         total_amount += amount;
     }
 
@@ -150,6 +145,7 @@ fn cast_vote(
     Ok(Response::new().add_attributes(vec![
         ("action", "cast_vote"),
         ("poll_id", poll_id.to_string().as_str()),
+        ("my_share", token_manager.share.to_string().as_str()),
         ("total_amount", total_amount.to_string().as_str()),
         ("voter", voter_id.as_str()),
         ("vote_option", vote.to_string().as_str()),
@@ -169,9 +165,9 @@ fn cast_single_vote(
     let mut token_manager = bank_read(storage).may_load(voter_key)?.unwrap_or_default();
 
     let amount = token_manager.share;
-    if amount.is_zero() {
-        return Ok(0);
-    }
+    // if amount.is_zero() {
+    //     return Ok(0);
+    // }
 
     // increment yes/no votes
     if vote == VoteOption::Yes {

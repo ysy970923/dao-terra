@@ -1,4 +1,4 @@
-use cosmwasm_std::{Deps, StdResult, Uint128};
+use cosmwasm_std::{Deps, StdResult};
 
 use crate::error::ContractError;
 use crate::state::{
@@ -132,7 +132,6 @@ pub fn query_voters(
 
 pub fn query_member(deps: Deps, member_id: String) -> StdResult<StakerResponse> {
     let member_key = member_id.as_bytes();
-    let state: State = state_read(deps.storage).load()?;
     let mut token_manager = bank_read(deps.storage)
         .may_load(member_key)?
         .unwrap_or_default();
@@ -147,12 +146,10 @@ pub fn query_member(deps: Deps, member_id: String) -> StdResult<StakerResponse> 
     });
 
     Ok(StakerResponse {
-        balance: if !state.total_share.is_zero() {
-            token_manager.share
-        } else {
-            Uint128::zero()
-        },
+        balance: token_manager.balance,
         share: token_manager.share,
         locked_balance: token_manager.locked_share,
+        delegated_to: token_manager.delegate_to.unwrap_or_default(),
+        delegated_from: token_manager.delegated_from,
     })
 }

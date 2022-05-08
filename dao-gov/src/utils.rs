@@ -68,6 +68,8 @@ pub struct StakerResponse {
     pub balance: Uint128,
     pub share: Uint128,
     pub locked_balance: Vec<(u64, VoteInfo)>,
+    pub delegated_to: String,
+    pub delegated_from: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]

@@ -37,6 +37,8 @@ where
         self.contract_info.save(deps.storage, &info)?;
         let owner = deps.api.addr_validate(&msg.owner)?;
         self.owner.save(deps.storage, &owner)?;
+        let gov_contract = deps.api.addr_validate(&msg.gov_contract)?;
+        self.gov_contract.save(deps.storage, &gov_contract)?;
         Ok(Response::default())
     }
 
@@ -53,10 +55,13 @@ where
                 recipient,
                 token_id,
             } => self.transfer_nft(deps, env, info, recipient, token_id),
-            ExecuteMsg::ExecuteDAO {
-                token_id,
-                msg,
-            } => self.execute_dao(deps, env, info, token_id, msg),
+            ExecuteMsg::ExecuteDAO { token_id, msg } => {
+                self.execute_dao(deps, env, info, token_id, msg)
+            }
+            ExecuteMsg::UpdateConfig {
+                owner,
+                gov_contract,
+            } => self.update_config(deps, env, info, owner, gov_contract),
         }
     }
 }
@@ -160,5 +165,32 @@ where
             .add_attribute("action", "execute_dao")
             .add_attribute("sender", sender)
             .add_attribute("token_id", token_id))
+    }
+
+    fn update_config(
+        &self,
+        deps: DepsMut,
+        env: Env,
+        info: MessageInfo,
+        owner: Option<String>,
+        gov_contract: Option<String>,
+    ) -> Result<Response<C>, ContractError> {
+        let owner_address = self.owner.load(deps.storage)?;
+
+        if info.sender != owner_address {
+            return Err(ContractError::Unauthorized {});
+        }
+
+        if let Some(owner) = owner {
+            let new_owner_address = deps.api.addr_validate(&owner)?;
+            self.owner.save(deps.storage, &new_owner_address)?;
+        }
+        if let Some(gov_contract) = gov_contract {
+            let new_gov_contract_address = deps.api.addr_validate(&gov_contract)?;
+            self.gov_contract
+                .save(deps.storage, &new_gov_contract_address)?;
+        }
+
+        Ok(Response::new().add_attribute("action", "update_config"))
     }
 }

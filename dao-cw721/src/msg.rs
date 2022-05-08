@@ -3,12 +3,21 @@ use cw721::Expiration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/*
+{
+    "name": "dao-cw721",
+    "symbol": "dcc",
+    "gov_contract": "terra1amlsu94w5erv23pu583y64ml89zlqw864ht2a0",
+    "owner": "terra1amlsu94w5erv23pu583y64ml89zlqw864ht2a0"
+}
+*/
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     /// Name of the NFT contract
     pub name: String,
     /// Symbol of the NFT contract
     pub symbol: String,
+    pub gov_contract: String,
 
     /// The minter is the only one who can create new NFTs.
     /// This is designed for a base NFT that is controlled by an external program
@@ -28,10 +37,29 @@ pub enum ExecuteMsg<T> {
         token_id: String,
     },
     /// Mint a new NFT, can only be called by the contract minter
+    /*
+    {
+        "mint": {
+            "token_id": "1",
+            "owner": "terra1amlsu94w5erv23pu583y64ml89zlqw864ht2a0"
+        }
+    }
+     */
     Mint(MintMsg<T>),
     ExecuteDAO {
         token_id: String,
         msg: Binary,
+    },
+    /*
+    {
+        "update_config": {
+            "gov_contract": "terra17d74nf7d6nlspr8klnt763jjz6uved5fsuhqdr"
+        }
+    }
+    */
+    UpdateConfig {
+        owner: Option<String>,
+        gov_contract: Option<String>,
     },
 }
 
