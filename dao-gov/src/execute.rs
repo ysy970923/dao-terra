@@ -1,9 +1,10 @@
 use cosmwasm_std::{
-    to_binary, Addr, CanonicalAddr, CosmosMsg, Decimal, DepsMut, Env, Isqrt, MessageInfo, Response,
-    StdResult, Storage, Uint128, WasmMsg,
+    from_binary, to_binary, Addr, CanonicalAddr, CosmosMsg, Decimal, DepsMut, Env, Isqrt,
+    MessageInfo, Response, StdResult, Storage, Uint128, WasmMsg,
 };
 
 use crate::error::ContractError;
+use crate::msg::Cw721HookMsg;
 use crate::state::{
     bank_read, bank_store, config_read, config_store, poll_indexer_store, poll_read, poll_store,
     poll_voter_read, poll_voter_store, state_read, state_store, Config, Poll, State, TokenManager,
@@ -11,11 +12,44 @@ use crate::state::{
 use crate::utils::{
     validate_description, validate_link, validate_title, PollStatus, VoteInfo, VoteOption,
 };
-
-pub fn create_poll(
+use cw721::Cw721ReceiveMsg;
+pub fn receive_cw721(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    cw721_msg: Cw721ReceiveMsg,
+) -> Result<Response, ContractError> {
+    let config: Config = config_read(deps.storage).load()?;
+
+    if config.cw721_token != deps.api.addr_canonicalize(info.sender.as_str())? {
+        return Err(ContractError::Unauthorized {});
+    }
+    match from_binary(&cw721_msg.msg) {
+        Ok(Cw721HookMsg::CastVote { poll_id, vote }) => {
+            cast_vote(deps, env, cw721_msg.sender, poll_id, vote)
+        }
+        Ok(Cw721HookMsg::CancelVote { poll_id }) => {
+            cancel_vote(deps, env, cw721_msg.sender, poll_id)
+        }
+        Ok(Cw721HookMsg::CreatePoll {
+            title,
+            description,
+            link,
+        }) => create_poll(deps, env, cw721_msg.sender, title, description, link),
+        Ok(Cw721HookMsg::EndPoll { poll_id }) => end_poll(deps, env, poll_id),
+        Ok(Cw721HookMsg::DelegateVote { delegator }) => {
+            delegate_vote(deps, cw721_msg.sender, delegator)
+        }
+        Ok(Cw721HookMsg::UnDelegateVote {}) => undelegate_vote(deps, cw721_msg.sender),
+        Ok(Cw721HookMsg::Exit {}) => exit(deps, info),
+        _ => Err(ContractError::DataShouldBeGiven {}),
+    }
+}
+
+fn create_poll(
+    deps: DepsMut,
+    env: Env,
+    sender: String,
     title: String,
     description: String,
     link: Option<String>,
@@ -23,7 +57,7 @@ pub fn create_poll(
     validate_title(&title)?;
     validate_description(&description)?;
     validate_link(&link)?;
-    let proposer = deps.api.addr_canonicalize(info.sender.as_str())?;
+    let proposer = deps.api.addr_canonicalize(sender.as_str())?;
     let config: Config = config_store(deps.storage).load()?;
 
     let mut state: State = state_store(deps.storage).load()?;
@@ -67,14 +101,14 @@ pub fn create_poll(
 }
 
 /// cast vote (can't vote if delegated)
-pub fn cast_vote(
+fn cast_vote(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    sender: String,
     poll_id: u64,
     vote: VoteOption,
 ) -> Result<Response, ContractError> {
-    let sender_address_raw = deps.api.addr_canonicalize(info.sender.as_str())?;
+    let sender_address_raw = deps.api.addr_canonicalize(&sender)?;
     let state = state_read(deps.storage).load()?;
 
     // check if valid poll id
@@ -105,11 +139,12 @@ pub fn cast_vote(
     }
 
     // cast my vote
-    let mut total_amount = cast_single_vote(deps.storage, &sender_address_raw, & mut a_poll, vote.clone())?;
+    let mut total_amount =
+        cast_single_vote(deps.storage, &sender_address_raw, &mut a_poll, vote.clone())?;
 
     let delegated_from = token_manager.delegated_from.clone();
     for (i, voter_address_raw) in delegated_from.iter().enumerate() {
-        let amount = cast_single_vote(deps.storage, voter_address_raw, & mut a_poll, vote.clone())?;
+        let amount = cast_single_vote(deps.storage, voter_address_raw, &mut a_poll, vote.clone())?;
         // remove member if amount is 0 (0 amount: not a dao member)
         if amount == 0 {
             token_manager.delegated_from.swap_remove(i);
@@ -123,7 +158,7 @@ pub fn cast_vote(
         ("action", "cast_vote"),
         ("poll_id", poll_id.to_string().as_str()),
         ("total_amount", total_amount.to_string().as_str()),
-        ("voter", info.sender.as_str()),
+        ("voter", sender.as_str()),
         ("vote_option", vote.to_string().as_str()),
     ]))
 }
@@ -170,7 +205,7 @@ fn cast_single_vote(
 }
 
 /// ends poll
-pub fn end_poll(deps: DepsMut, env: Env, poll_id: u64) -> Result<Response, ContractError> {
+fn end_poll(deps: DepsMut, env: Env, poll_id: u64) -> Result<Response, ContractError> {
     let mut a_poll: Poll = poll_store(deps.storage).load(&poll_id.to_be_bytes())?;
 
     if a_poll.status != PollStatus::InProgress {
@@ -265,12 +300,11 @@ pub fn update_config(
 
 /// delegate my share (
 /// should not be currently voted in in progress polls
-pub fn delegate_vote(
+fn delegate_vote(
     deps: DepsMut,
-    info: MessageInfo,
+    sender: String,
     delegator: String,
 ) -> Result<Response, ContractError> {
-    let sender = info.sender;
     let delegator_address_raw = deps.api.addr_canonicalize(delegator.as_str())?;
     let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
 
@@ -319,8 +353,7 @@ pub fn delegate_vote(
 }
 
 /// undelegate my share
-pub fn undelegate_vote(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
-    let sender = info.sender;
+fn undelegate_vote(deps: DepsMut, sender: String) -> Result<Response, ContractError> {
     let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
 
     // delete delegate to
@@ -384,13 +417,13 @@ fn compute_locked_balance(
         .unwrap_or_default()
 }
 
-pub fn cancel_vote(
+fn cancel_vote(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    sender: String,
     poll_id: u64,
 ) -> Result<Response, ContractError> {
-    let sender_address_raw = deps.api.addr_canonicalize(info.sender.as_str())?;
+    let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
     let state = state_read(deps.storage).load()?;
 
     // check if valid poll id
@@ -443,7 +476,7 @@ pub fn cancel_vote(
         ("action", "cancel_vote"),
         ("poll_id", poll_id.to_string().as_str()),
         ("amount", vote_info.balance.to_string().as_str()),
-        ("voter", info.sender.as_str()),
+        ("voter", sender.as_str()),
         ("vote_option", vote_info.vote.to_string().as_str()),
     ]))
 }
@@ -476,18 +509,13 @@ pub fn mint(
     ]))
 }
 
-/// instant burn of tokens
-/// member can burn token
-pub fn instant_burn(
-    deps: DepsMut,
-    info: MessageInfo,
-    amount: Uint128,
-) -> Result<Response, ContractError> {
+/// member can burn token all
+fn exit(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
     let sender = info.sender;
-    if amount.is_zero() {
-        return Err(ContractError::InsufficientFunds {});
-    }
     let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
+    let key = &sender_address_raw.as_slice();
+    let token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let amount = token_manager.balance;
     _burn(deps.storage, sender_address_raw, amount)?;
     Ok(Response::new().add_attributes(vec![
         ("action", "instant_burn"),
@@ -498,32 +526,37 @@ pub fn instant_burn(
 
 /// transfer from owner to recipient
 /// only callable by owner address
+/// amount: None (transfer all)
 pub fn transfer_from(
     deps: DepsMut,
     info: MessageInfo,
     owner: String,
     recipient: String,
-    amount: Uint128,
+    amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config: Config = config_store(deps.storage).load()?;
     let sender = info.sender.as_str();
+    let owner_address_raw = deps.api.addr_canonicalize(&owner)?;
+    let recipient_address_raw = deps.api.addr_canonicalize(&recipient)?;
     if config.owner != deps.api.addr_canonicalize(sender)? {
         return Err(ContractError::Unauthorized {});
     }
+    let key = &recipient_address_raw.as_slice();
+    let token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
 
-    if amount.is_zero() {
+    let transfer_amount = amount.unwrap_or(token_manager.balance);
+    if transfer_amount.is_zero() {
         return Err(ContractError::InsufficientFunds {});
     }
-    let owner_address_raw = deps.api.addr_canonicalize(&owner)?;
-    let recipient_address_raw = deps.api.addr_canonicalize(&recipient)?;
-    _burn(deps.storage, owner_address_raw, amount)?;
-    _mint(deps.storage, recipient_address_raw, amount)?;
+
+    _burn(deps.storage, owner_address_raw, transfer_amount)?;
+    _mint(deps.storage, recipient_address_raw, transfer_amount)?;
     Ok(Response::new().add_attributes(vec![
         ("action", "transfer_from"),
         ("from", &owner),
         ("to", &recipient),
         ("by", sender),
-        ("amount", amount.to_string().as_str()),
+        ("amount", transfer_amount.to_string().as_str()),
     ]))
 }
 

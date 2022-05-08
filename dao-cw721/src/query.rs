@@ -48,7 +48,6 @@ where
         let info = self.tokens.load(deps.storage, &token_id)?;
         Ok(OwnerOfResponse {
             owner: info.owner.to_string(),
-            approvals: humanize_approvals(&env.block, &info, include_expired),
         })
     }
 
@@ -134,7 +133,6 @@ where
         Ok(AllNftInfoResponse {
             access: OwnerOfResponse {
                 owner: info.owner.to_string(),
-                approvals: humanize_approvals(&env.block, &info, include_expired),
             },
             info: NftInfoResponse {
                 token_uri: info.token_uri,
@@ -207,23 +205,4 @@ fn parse_approval(item: StdResult<Pair<Expiration>>) -> StdResult<cw721::Approva
         let spender = String::from_utf8(k)?;
         Ok(cw721::Approval { spender, expires })
     })
-}
-
-fn humanize_approvals<T>(
-    block: &BlockInfo,
-    info: &TokenInfo<T>,
-    include_expired: bool,
-) -> Vec<cw721::Approval> {
-    info.approvals
-        .iter()
-        .filter(|apr| include_expired || !apr.is_expired(block))
-        .map(humanize_approval)
-        .collect()
-}
-
-fn humanize_approval(approval: &Approval) -> cw721::Approval {
-    cw721::Approval {
-        spender: approval.spender.to_string(),
-        expires: approval.expires,
-    }
 }

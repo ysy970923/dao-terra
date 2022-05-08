@@ -1,0 +1,2 @@
+cargo:rustc-env=TYPENUM_BUILD_CONSTS=/home/ubuntu/workspace/BlockBuilders/dao-terra/dao-cw721/packages/cw721/target/rls/debug/build/typenum-d2b77880758bcf06/out/consts.rs
+cargo:rustc-env=TYPENUM_BUILD_OP=/home/ubuntu/workspace/BlockBuilders/dao-terra/dao-cw721/packages/cw721/target/rls/debug/build/typenum-d2b77880758bcf06/out/op.rs

@@ -1,6 +1,6 @@
 use crate::utils::{OrderBy, PollStatus, VoteOption};
 use cosmwasm_std::{Binary, Decimal, Uint128};
-use cw20::Cw20ReceiveMsg;
+use cw721::Cw721ReceiveMsg;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -23,28 +23,32 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    ReceiveNft(Cw721ReceiveMsg),
     Mint {
         recipient: String,
-        amount: Uint128,
-    },
-    InstantBurn {
         amount: Uint128,
     },
     TransferFrom {
         owner: String,
         recipient: String,
-        amount: Uint128,
+        amount: Option<Uint128>,
     },
-    DelegateVote {
-        delegator: String,
-    },
-    UnDelegateVote {},
     UpdateConfig {
         owner: Option<String>,
         quorum: Option<Decimal>,
         threshold: Option<Decimal>,
         voting_period: Option<u64>,
     },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Cw721HookMsg {
+    Exit {},
+    DelegateVote {
+        delegator: String,
+    },
+    UnDelegateVote {},
     CreatePoll {
         title: String,
         description: String,

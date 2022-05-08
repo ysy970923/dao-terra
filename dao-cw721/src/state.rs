@@ -14,6 +14,7 @@ where
 {
     pub contract_info: Item<'a, ContractInfoResponse>,
     pub owner: Item<'a, Addr>,
+    pub gov_contract: Item<'a, Addr>,
     pub token_count: Item<'a, u64>,
     /// Stored as (granter, operator) giving operator full control over granter's account
     pub operators: Map<'a, (&'a Addr, &'a Addr), Expiration>,
@@ -38,6 +39,7 @@ where
         Self::new(
             "nft_info",
             "owner",
+            "gov_contract",
             "num_tokens",
             "operators",
             "tokens",
@@ -53,6 +55,7 @@ where
     fn new(
         contract_key: &'a str,
         minter_key: &'a str,
+        gov_contract_key: &'a str,
         token_count_key: &'a str,
         operator_key: &'a str,
         tokens_key: &'a str,
@@ -64,6 +67,7 @@ where
         Self {
             contract_info: Item::new(contract_key),
             owner: Item::new(minter_key),
+            gov_contract: Item::new(gov_contract_key),
             token_count: Item::new(token_count_key),
             operators: Map::new(operator_key),
             tokens: IndexedMap::new(tokens_key, indexes),
@@ -86,9 +90,6 @@ where
 pub struct TokenInfo<T> {
     /// The owner of the newly minted NFT
     pub owner: Addr,
-    /// Approvals are stored here, as we clear them all upon transfer and cannot accumulate much
-    pub approvals: Vec<Approval>,
-
     /// Universal resource identifier for this NFT
     /// Should point to a JSON file that conforms to the ERC721
     /// Metadata JSON Schema

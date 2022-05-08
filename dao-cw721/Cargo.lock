@@ -172,8 +172,6 @@ dependencies = [
 [[package]]
 name = "cw721"
 version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44a81e5d775c056f5c1dd5eaaf68b82599cbc21d21c9a38eca0b74808d934806"
 dependencies = [
  "cosmwasm-std",
  "cw0",

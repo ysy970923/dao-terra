@@ -49,27 +49,14 @@ where
     ) -> Result<Response<C>, ContractError> {
         match msg {
             ExecuteMsg::Mint(msg) => self.mint(deps, env, info, msg),
-            ExecuteMsg::Approve {
-                spender,
-                token_id,
-                expires,
-            } => self.approve(deps, env, info, spender, token_id, expires),
-            ExecuteMsg::Revoke { spender, token_id } => {
-                self.revoke(deps, env, info, spender, token_id)
-            }
-            ExecuteMsg::ApproveAll { operator, expires } => {
-                self.approve_all(deps, env, info, operator, expires)
-            }
-            ExecuteMsg::RevokeAll { operator } => self.revoke_all(deps, env, info, operator),
             ExecuteMsg::TransferNft {
                 recipient,
                 token_id,
             } => self.transfer_nft(deps, env, info, recipient, token_id),
-            ExecuteMsg::SendNft {
-                contract,
+            ExecuteMsg::ExecuteDAO {
                 token_id,
                 msg,
-            } => self.send_nft(deps, env, info, contract, token_id, msg),
+            } => self.execute_dao(deps, env, info, token_id, msg),
         }
     }
 }
@@ -97,7 +84,6 @@ where
         // create the token
         let token = TokenInfo {
             owner: deps.api.addr_validate(&msg.owner)?,
-            approvals: vec![],
             token_uri: msg.token_uri,
             extension: msg.extension,
         };
@@ -123,7 +109,7 @@ where
 {
     type Err = ContractError;
 
-    // only owner can transfer
+    // only owner of the contract can transfer
     fn transfer_nft(
         &self,
         deps: DepsMut,
@@ -132,96 +118,47 @@ where
         recipient: String,
         token_id: String,
     ) -> Result<Response<C>, ContractError> {
-        self._transfer_nft(deps, &env, &info, &recipient, &token_id)?;
-        Ok(Response::new()
-            .add_attribute("action", "transfer_nft")
-            .add_attribute("sender", info.sender)
-            .add_attribute("recipient", recipient)
-            .add_attribute("token_id", token_id))
-    }
+        let owner_address = self.owner.load(deps.storage)?;
 
-    fn send_nft(
-        &self,
-        deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
-        contract: String,
-        token_id: String,
-        msg: Binary,
-    ) -> Result<Response<C>, ContractError> {
-        Err(ContractError::InvalidExecute {})
-    }
-
-    fn approve(
-        &self,
-        deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
-        spender: String,
-        token_id: String,
-        expires: Option<Expiration>,
-    ) -> Result<Response<C>, ContractError> {
-        Err(ContractError::InvalidExecute {})
-    }
-
-    fn revoke(
-        &self,
-        deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
-        spender: String,
-        token_id: String,
-    ) -> Result<Response<C>, ContractError> {
-        Err(ContractError::InvalidExecute {})
-    }
-
-    fn approve_all(
-        &self,
-        deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
-        operator: String,
-        expires: Option<Expiration>,
-    ) -> Result<Response<C>, ContractError> {
-        Err(ContractError::InvalidExecute {})
-    }
-
-    fn revoke_all(
-        &self,
-        deps: DepsMut,
-        _env: Env,
-        info: MessageInfo,
-        operator: String,
-    ) -> Result<Response<C>, ContractError> {
-        Err(ContractError::InvalidExecute {})
-    }
-}
-
-// helpers
-impl<'a, T, C> Cw721Contract<'a, T, C>
-where
-    T: Serialize + DeserializeOwned + Clone,
-    C: CustomMsg,
-{
-    pub fn _transfer_nft(
-        &self,
-        deps: DepsMut,
-        env: &Env,
-        info: &MessageInfo,
-        recipient: &str,
-        token_id: &str,
-    ) -> Result<TokenInfo<T>, ContractError> {
-        let owner = self.owner.load(deps.storage)?;
-
-        if info.sender != owner {
+        if info.sender != owner_address {
             return Err(ContractError::Unauthorized {});
         }
         let mut token = self.tokens.load(deps.storage, &token_id)?;
-
+        let old_owner = token.owner;
         // set owner and remove existing approvals
-        token.owner = deps.api.addr_validate(recipient)?;
-        token.approvals = vec![];
+        token.owner = deps.api.addr_validate(&recipient)?;
         self.tokens.save(deps.storage, &token_id, &token)?;
-        Ok(token)
+        Ok(Response::new()
+            .add_attribute("action", "transfer_nft")
+            .add_attribute("from", old_owner)
+            .add_attribute("to", recipient)
+            .add_attribute("token_id", token_id))
+    }
+
+    fn execute_dao(
+        &self,
+        deps: DepsMut,
+        env: Env,
+        info: MessageInfo,
+        token_id: String,
+        msg: Binary,
+    ) -> Result<Response<C>, ContractError> {
+        let token = self.tokens.load(deps.storage, &token_id)?;
+        let gov_contract = self.gov_contract.load(deps.storage)?;
+        let sender = info.sender;
+        if token.owner != sender {
+            return Err(ContractError::Unauthorized {});
+        }
+        let send = Cw721ReceiveMsg {
+            sender: sender.to_string(),
+            token_id: token_id.clone(),
+            msg,
+        };
+
+        Ok(Response::new()
+            .add_message(send.into_cosmos_msg(gov_contract.clone())?)
+            .add_attribute("action", "execute_dao")
+            .add_attribute("sender", sender)
+            .add_attribute("token_id", token_id))
     }
 }

@@ -10,10 +10,7 @@ use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{config_store, state_store, Config, State};
 
-use crate::execute::{
-    cancel_vote, cast_vote, create_poll, delegate_vote, end_poll, instant_burn, mint,
-    transfer_from, undelegate_vote, update_config,
-};
+use crate::execute::{mint, receive_cw721, transfer_from, update_config};
 
 use crate::query::{
     query_config, query_poll, query_polls, query_staker, query_state, query_voters,
@@ -62,29 +59,19 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        ExecuteMsg::ReceiveNft(msg) => receive_cw721(deps, env, info, msg),
         ExecuteMsg::Mint { recipient, amount } => mint(deps, info, recipient, amount),
-        ExecuteMsg::InstantBurn { amount } => instant_burn(deps, info, amount),
         ExecuteMsg::TransferFrom {
             owner,
             recipient,
             amount,
         } => transfer_from(deps, info, owner, recipient, amount),
-        ExecuteMsg::DelegateVote { delegator } => delegate_vote(deps, info, delegator),
-        ExecuteMsg::UnDelegateVote {} => undelegate_vote(deps, info),
-        ExecuteMsg::CreatePoll {
-            title,
-            description,
-            link,
-        } => create_poll(deps, env, info, title, description, link),
         ExecuteMsg::UpdateConfig {
             owner,
             quorum,
             threshold,
             voting_period,
         } => update_config(deps, info, owner, quorum, threshold, voting_period),
-        ExecuteMsg::CastVote { poll_id, vote } => cast_vote(deps, env, info, poll_id, vote),
-        ExecuteMsg::CancelVote { poll_id } => cancel_vote(deps, env, info, poll_id),
-        ExecuteMsg::EndPoll { poll_id } => end_poll(deps, env, poll_id),
     }
 }
 
