@@ -40,7 +40,7 @@ pub fn query_poll(deps: Deps, poll_id: u64) -> Result<PollResponse, ContractErro
 
     Ok(PollResponse {
         id: poll.id,
-        creator: deps.api.addr_humanize(&poll.creator)?.to_string(),
+        creator: poll.creator,
         status: poll.status,
         end_height: poll.end_height,
         title: poll.title,
@@ -68,7 +68,7 @@ pub fn query_polls(
         .map(|poll| {
             Ok(PollResponse {
                 id: poll.id,
-                creator: deps.api.addr_humanize(&poll.creator)?.to_string(),
+                creator: poll.creator.clone(),
                 status: poll.status.clone(),
                 end_height: poll.end_height,
                 title: poll.title.to_string(),
@@ -130,11 +130,11 @@ pub fn query_voters(
     })
 }
 
-pub fn query_staker(deps: Deps, address: String) -> StdResult<StakerResponse> {
-    let addr_raw = deps.api.addr_canonicalize(&address).unwrap();
+pub fn query_member(deps: Deps, member_id: String) -> StdResult<StakerResponse> {
+    let member_key = member_id.as_bytes();
     let state: State = state_read(deps.storage).load()?;
     let mut token_manager = bank_read(deps.storage)
-        .may_load(addr_raw.as_slice())?
+        .may_load(member_key)?
         .unwrap_or_default();
 
     // leave only in-progress polls

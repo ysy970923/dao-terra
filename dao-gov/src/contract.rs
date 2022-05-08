@@ -13,7 +13,7 @@ use crate::state::{config_store, state_store, Config, State};
 use crate::execute::{mint, receive_cw721, transfer_from, update_config};
 
 use crate::query::{
-    query_config, query_poll, query_polls, query_staker, query_state, query_voters,
+    query_config, query_poll, query_polls, query_member, query_state, query_voters,
 };
 
 // version info for migration info
@@ -99,7 +99,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> Result<Binary, ContractErr
     match msg {
         QueryMsg::Config {} => Ok(to_binary(&query_config(deps)?)?),
         QueryMsg::State {} => Ok(to_binary(&query_state(deps)?)?),
-        QueryMsg::Staker { address } => Ok(to_binary(&query_staker(deps, address)?)?),
+        QueryMsg::Member { member_id } => Ok(to_binary(&query_member(deps, member_id)?)?),
         QueryMsg::Poll { poll_id } => Ok(to_binary(&query_poll(deps, poll_id)?)?),
         QueryMsg::Polls {
             filter,

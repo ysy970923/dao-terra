@@ -1,6 +1,5 @@
 use cosmwasm_std::{
-    from_binary, to_binary, Addr, CanonicalAddr, CosmosMsg, Decimal, DepsMut, Env, Isqrt,
-    MessageInfo, Response, StdResult, Storage, Uint128, WasmMsg,
+    from_binary, Decimal, DepsMut, Env, Isqrt, MessageInfo, Response, Storage, Uint128,
 };
 
 use crate::error::ContractError;
@@ -41,7 +40,7 @@ pub fn receive_cw721(
             delegate_vote(deps, cw721_msg.sender, delegator)
         }
         Ok(Cw721HookMsg::UnDelegateVote {}) => undelegate_vote(deps, cw721_msg.sender),
-        Ok(Cw721HookMsg::Exit {}) => exit(deps, info),
+        Ok(Cw721HookMsg::Exit {}) => exit(deps, cw721_msg.sender),
         _ => Err(ContractError::DataShouldBeGiven {}),
     }
 }
@@ -49,7 +48,7 @@ pub fn receive_cw721(
 fn create_poll(
     deps: DepsMut,
     env: Env,
-    sender: String,
+    sender_id: String,
     title: String,
     description: String,
     link: Option<String>,
@@ -57,7 +56,6 @@ fn create_poll(
     validate_title(&title)?;
     validate_description(&description)?;
     validate_link(&link)?;
-    let proposer = deps.api.addr_canonicalize(sender.as_str())?;
     let config: Config = config_store(deps.storage).load()?;
 
     let mut state: State = state_store(deps.storage).load()?;
@@ -68,7 +66,7 @@ fn create_poll(
 
     let new_poll = Poll {
         id: poll_id,
-        creator: proposer,
+        creator: sender_id.clone(),
         status: PollStatus::InProgress,
         yes_votes: Uint128::zero(),
         no_votes: Uint128::zero(),
@@ -88,13 +86,7 @@ fn create_poll(
 
     Ok(Response::new().add_attributes(vec![
         ("action", "create_poll"),
-        (
-            "creator",
-            deps.api
-                .addr_humanize(&new_poll.creator)?
-                .to_string()
-                .as_str(),
-        ),
+        ("creator", sender_id.as_str()),
         ("poll_id", &poll_id.to_string()),
         ("end_height", new_poll.end_height.to_string().as_str()),
     ]))
@@ -104,11 +96,11 @@ fn create_poll(
 fn cast_vote(
     deps: DepsMut,
     env: Env,
-    sender: String,
+    voter_id: String,
     poll_id: u64,
     vote: VoteOption,
 ) -> Result<Response, ContractError> {
-    let sender_address_raw = deps.api.addr_canonicalize(&sender)?;
+    let voter_key = voter_id.as_bytes();
     let state = state_read(deps.storage).load()?;
 
     // check if valid poll id
@@ -124,14 +116,15 @@ fn cast_vote(
 
     // check if already voted
     if poll_voter_read(deps.storage, poll_id)
-        .load(sender_address_raw.as_slice())
+        .load(voter_key)
         .is_ok()
     {
         return Err(ContractError::AlreadyVoted {});
     }
 
-    let key = &sender_address_raw.as_slice();
-    let mut token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let mut token_manager = bank_read(deps.storage)
+        .may_load(voter_key)?
+        .unwrap_or_default();
 
     // delegated user can't cast vote (must undelegate first)
     if token_manager.delegate_to.is_some() {
@@ -139,12 +132,12 @@ fn cast_vote(
     }
 
     // cast my vote
-    let mut total_amount =
-        cast_single_vote(deps.storage, &sender_address_raw, &mut a_poll, vote.clone())?;
+    let mut total_amount = cast_single_vote(deps.storage, voter_key, &mut a_poll, vote.clone())?;
 
+    // cast delegated votes
     let delegated_from = token_manager.delegated_from.clone();
-    for (i, voter_address_raw) in delegated_from.iter().enumerate() {
-        let amount = cast_single_vote(deps.storage, voter_address_raw, &mut a_poll, vote.clone())?;
+    for (i, id) in delegated_from.iter().enumerate() {
+        let amount = cast_single_vote(deps.storage, id.as_bytes(), &mut a_poll, vote.clone())?;
         // remove member if amount is 0 (0 amount: not a dao member)
         if amount == 0 {
             token_manager.delegated_from.swap_remove(i);
@@ -158,7 +151,7 @@ fn cast_vote(
         ("action", "cast_vote"),
         ("poll_id", poll_id.to_string().as_str()),
         ("total_amount", total_amount.to_string().as_str()),
-        ("voter", sender.as_str()),
+        ("voter", voter_id.as_str()),
         ("vote_option", vote.to_string().as_str()),
     ]))
 }
@@ -168,13 +161,12 @@ fn cast_vote(
 /// delegated from member can't be voted
 fn cast_single_vote(
     storage: &mut dyn Storage,
-    voter_address_raw: &CanonicalAddr,
+    voter_key: &[u8],
     a_poll: &mut Poll,
     vote: VoteOption,
 ) -> Result<u128, ContractError> {
     let poll_id = a_poll.id;
-    let key = &voter_address_raw.as_slice();
-    let mut token_manager = bank_read(storage).may_load(key)?.unwrap_or_default();
+    let mut token_manager = bank_read(storage).may_load(voter_key)?.unwrap_or_default();
 
     let amount = token_manager.share;
     if amount.is_zero() {
@@ -196,10 +188,10 @@ fn cast_single_vote(
     token_manager
         .locked_share
         .push((poll_id, vote_info.clone()));
-    bank_store(storage).save(key, &token_manager)?;
+    bank_store(storage).save(voter_key, &token_manager)?;
 
     // store poll voter, update poll data
-    poll_voter_store(storage, poll_id).save(voter_address_raw.as_slice(), &vote_info)?;
+    poll_voter_store(storage, poll_id).save(voter_key, &vote_info)?;
 
     Ok(amount.u128())
 }
@@ -302,15 +294,14 @@ pub fn update_config(
 /// should not be currently voted in in progress polls
 fn delegate_vote(
     deps: DepsMut,
-    sender: String,
-    delegator: String,
+    voter_id: String,
+    delegator_id: String,
 ) -> Result<Response, ContractError> {
-    let delegator_address_raw = deps.api.addr_canonicalize(delegator.as_str())?;
-    let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
-
     // save in delegate to
-    let key = &sender_address_raw.as_slice();
-    let mut token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let voter_key = voter_id.as_bytes();
+    let mut token_manager = bank_read(deps.storage)
+        .may_load(voter_key)?
+        .unwrap_or_default();
 
     // only leave in progress polls
     token_manager.locked_share.retain(|(poll_id, _)| {
@@ -320,7 +311,7 @@ fn delegate_vote(
 
         // remove voter if poll is not in progress
         if poll.status != PollStatus::InProgress {
-            poll_voter_store(deps.storage, *poll_id).remove(key);
+            poll_voter_store(deps.storage, *poll_id).remove(voter_key);
         }
 
         poll.status == PollStatus::InProgress
@@ -335,59 +326,59 @@ fn delegate_vote(
     if token_manager.delegate_to.is_some() {
         return Err(ContractError::AlreadyDelegated {});
     }
-
-    token_manager.delegate_to = Some(delegator_address_raw.clone());
-    bank_store(deps.storage).save(key, &token_manager)?;
+    token_manager.delegate_to = Some(delegator_id.clone());
+    bank_store(deps.storage).save(voter_key, &token_manager)?;
 
     // save in delegate from
-    let key = &delegator_address_raw.as_slice();
-    let mut token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
-    token_manager.delegated_from.push(sender_address_raw);
-    bank_store(deps.storage).save(key, &token_manager)?;
+    let delegator_key = delegator_id.as_bytes();
+    let mut token_manager = bank_read(deps.storage)
+        .may_load(delegator_key)?
+        .unwrap_or_default();
+    token_manager.delegated_from.push(voter_id.clone());
+    bank_store(deps.storage).save(delegator_key, &token_manager)?;
 
     Ok(Response::new().add_attributes(vec![
         ("action", "delegate"),
-        ("from", sender.as_str()),
-        ("to", &delegator),
+        ("from", voter_id.as_str()),
+        ("to", delegator_id.as_str()),
     ]))
 }
 
 /// undelegate my share
-fn undelegate_vote(deps: DepsMut, sender: String) -> Result<Response, ContractError> {
-    let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
-
+fn undelegate_vote(deps: DepsMut, voter_id: String) -> Result<Response, ContractError> {
+    let voter_key = voter_id.as_bytes();
     // delete delegate to
-    let key = &sender_address_raw.as_slice();
-    let mut token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let mut token_manager = bank_read(deps.storage)
+        .may_load(voter_key)?
+        .unwrap_or_default();
 
     // if not delegated to other
     if token_manager.delegate_to.is_none() {
         return Err(ContractError::NotYetDelegated {});
     }
-    let delegator_address_raw = token_manager.delegate_to.unwrap();
+    let delegator = token_manager.delegate_to.unwrap();
 
     token_manager.delegate_to = None;
-    bank_store(deps.storage).save(key, &token_manager)?;
+    bank_store(deps.storage).save(voter_key, &token_manager)?;
 
     // delete in delegate from
-    let key = &delegator_address_raw.as_slice();
-    let mut token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let delegator_key = delegator.as_bytes();
+    let mut token_manager = bank_read(deps.storage)
+        .may_load(delegator_key)?
+        .unwrap_or_default();
     let delegated_from = token_manager.delegated_from.clone();
     let index = delegated_from
         .into_iter()
-        .position(|x| x == sender_address_raw)
+        .position(|x| x == voter_id)
         .unwrap();
     token_manager.delegated_from.swap_remove(index);
 
-    bank_store(deps.storage).save(key, &token_manager)?;
+    bank_store(deps.storage).save(delegator_key, &token_manager)?;
 
     Ok(Response::new().add_attributes(vec![
         ("action", "undelegate"),
-        ("from", sender.as_str()),
-        (
-            "to",
-            deps.api.addr_humanize(&delegator_address_raw)?.as_str(),
-        ),
+        ("from", voter_id.as_str()),
+        ("to", delegator.as_str()),
     ]))
 }
 
@@ -395,7 +386,7 @@ fn undelegate_vote(deps: DepsMut, sender: String) -> Result<Response, ContractEr
 fn compute_locked_balance(
     storage: &mut dyn Storage,
     token_manager: &mut TokenManager,
-    voter: &CanonicalAddr,
+    voter_key: &[u8],
 ) -> u128 {
     // only leave in progress polls
     token_manager.locked_share.retain(|(poll_id, _)| {
@@ -403,7 +394,7 @@ fn compute_locked_balance(
 
         // remove voter if poll is not in progress
         if poll.status != PollStatus::InProgress {
-            poll_voter_store(storage, *poll_id).remove(voter.as_slice());
+            poll_voter_store(storage, *poll_id).remove(voter_key);
         }
 
         poll.status == PollStatus::InProgress
@@ -420,10 +411,10 @@ fn compute_locked_balance(
 fn cancel_vote(
     deps: DepsMut,
     env: Env,
-    sender: String,
+    voter_id: String,
     poll_id: u64,
 ) -> Result<Response, ContractError> {
-    let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
+    let voter_key = voter_id.as_bytes();
     let state = state_read(deps.storage).load()?;
 
     // check if valid poll id
@@ -439,16 +430,17 @@ fn cancel_vote(
 
     // check if sender_address has voted
     if !poll_voter_read(deps.storage, poll_id)
-        .load(sender_address_raw.as_slice())
+        .load(voter_key)
         .is_ok()
     {
         return Err(ContractError::NotYetVoted {});
     }
 
-    let key = &sender_address_raw.as_slice();
-    let mut token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let mut token_manager = bank_read(deps.storage)
+        .may_load(voter_key)?
+        .unwrap_or_default();
 
-    let vote_info = poll_voter_read(deps.storage, poll_id).load(sender_address_raw.as_slice())?;
+    let vote_info = poll_voter_read(deps.storage, poll_id).load(voter_key)?;
 
     // increment yes/no votes
     if vote_info.vote == VoteOption::Yes {
@@ -462,13 +454,13 @@ fn cancel_vote(
 
         // remove voter if poll is not in progress or poll is the same vote to cancel
         if poll.status != PollStatus::InProgress || *id == poll_id {
-            poll_voter_store(deps.storage, *id).remove(sender_address_raw.as_slice());
+            poll_voter_store(deps.storage, *id).remove(voter_key);
         }
 
         poll.status == PollStatus::InProgress && *id != poll_id
     });
 
-    bank_store(deps.storage).save(key, &token_manager)?;
+    bank_store(deps.storage).save(voter_key, &token_manager)?;
 
     poll_store(deps.storage).save(&poll_id.to_be_bytes(), &a_poll)?;
 
@@ -476,7 +468,7 @@ fn cancel_vote(
         ("action", "cancel_vote"),
         ("poll_id", poll_id.to_string().as_str()),
         ("amount", vote_info.balance.to_string().as_str()),
-        ("voter", sender.as_str()),
+        ("voter", voter_id.as_str()),
         ("vote_option", vote_info.vote.to_string().as_str()),
     ]))
 }
@@ -486,7 +478,7 @@ fn cancel_vote(
 pub fn mint(
     deps: DepsMut,
     info: MessageInfo,
-    recipient: String,
+    recipient_id: String,
     amount: Uint128,
 ) -> Result<Response, ContractError> {
     let config: Config = config_store(deps.storage).load()?;
@@ -499,27 +491,24 @@ pub fn mint(
         return Err(ContractError::InsufficientFunds {});
     }
 
-    let recipient_address_raw = deps.api.addr_canonicalize(&recipient)?;
-    _mint(deps.storage, recipient_address_raw, amount)?;
+    _mint(deps.storage, recipient_id.as_bytes(), amount)?;
 
     Ok(Response::new().add_attributes(vec![
         ("action", "mint"),
-        ("to", &recipient),
+        ("to", &recipient_id),
         ("amount", amount.to_string().as_str()),
     ]))
 }
 
 /// member can burn token all
-fn exit(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
-    let sender = info.sender;
-    let sender_address_raw = deps.api.addr_canonicalize(sender.as_str())?;
-    let key = &sender_address_raw.as_slice();
+fn exit(deps: DepsMut, sender_id: String) -> Result<Response, ContractError> {
+    let key = sender_id.as_bytes();
     let token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
     let amount = token_manager.balance;
-    _burn(deps.storage, sender_address_raw, amount)?;
+    _burn(deps.storage, key, amount)?;
     Ok(Response::new().add_attributes(vec![
-        ("action", "instant_burn"),
-        ("sender", sender.as_str()),
+        ("action", "exit"),
+        ("from", sender_id.as_str()),
         ("amount", &amount.to_string()),
     ]))
 }
@@ -530,43 +519,35 @@ fn exit(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
 pub fn transfer_from(
     deps: DepsMut,
     info: MessageInfo,
-    owner: String,
-    recipient: String,
-    amount: Option<Uint128>,
+    owner_id: String,
+    recipient_id: String,
+    amount: Uint128,
 ) -> Result<Response, ContractError> {
     let config: Config = config_store(deps.storage).load()?;
     let sender = info.sender.as_str();
-    let owner_address_raw = deps.api.addr_canonicalize(&owner)?;
-    let recipient_address_raw = deps.api.addr_canonicalize(&recipient)?;
     if config.owner != deps.api.addr_canonicalize(sender)? {
         return Err(ContractError::Unauthorized {});
     }
-    let key = &recipient_address_raw.as_slice();
-    let token_manager = bank_read(deps.storage).may_load(key)?.unwrap_or_default();
+    let recipient_key = recipient_id.as_bytes();
+    let owner_key = owner_id.as_bytes();
 
-    let transfer_amount = amount.unwrap_or(token_manager.balance);
-    if transfer_amount.is_zero() {
+    if amount.is_zero() {
         return Err(ContractError::InsufficientFunds {});
     }
 
-    _burn(deps.storage, owner_address_raw, transfer_amount)?;
-    _mint(deps.storage, recipient_address_raw, transfer_amount)?;
+    _burn(deps.storage, owner_key, amount)?;
+    _mint(deps.storage, recipient_key, amount)?;
     Ok(Response::new().add_attributes(vec![
         ("action", "transfer_from"),
-        ("from", &owner),
-        ("to", &recipient),
+        ("from", &owner_id),
+        ("to", &recipient_id),
         ("by", sender),
-        ("amount", transfer_amount.to_string().as_str()),
+        ("amount", amount.to_string().as_str()),
     ]))
 }
 
 /// mint warrant tokens
-fn _mint(
-    storage: &mut dyn Storage,
-    recipient_address_raw: CanonicalAddr,
-    amount: Uint128,
-) -> Result<(), ContractError> {
-    let key = &recipient_address_raw.as_slice();
+fn _mint(storage: &mut dyn Storage, key: &[u8], amount: Uint128) -> Result<(), ContractError> {
     let mut token_manager = bank_read(storage).may_load(key)?.unwrap_or_default();
     let mut state: State = state_store(storage).load()?;
     let old_share = token_manager.share;
@@ -584,17 +565,11 @@ fn _mint(
 
 /// burn tokens (used in instant_burn, transfer(burn --> mint))
 /// can burn only non locked shares
-fn _burn(
-    storage: &mut dyn Storage,
-    owner_address_raw: CanonicalAddr,
-    amount: Uint128,
-) -> Result<(), ContractError> {
-    let key = owner_address_raw.as_slice();
-
+fn _burn(storage: &mut dyn Storage, key: &[u8], amount: Uint128) -> Result<(), ContractError> {
     if let Some(mut token_manager) = bank_read(storage).may_load(key)? {
         let mut state: State = state_store(storage).load()?;
         // Load total share & total balance except proposal deposit amount
-        let locked_share = compute_locked_balance(storage, &mut token_manager, &owner_address_raw);
+        let locked_share = compute_locked_balance(storage, &mut token_manager, key);
 
         let balance = token_manager.balance.u128();
         let locked_amount = locked_share.pow(2);

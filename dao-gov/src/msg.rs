@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /**
 {
-    "cw20_token": "terra1lzfrsy38l34uzrlma3fm3hsktv848pcgdnlcj7",
+    "cw721_token": "terra1c929yvrhcng9l93lska29hajewlvml4frdpyre",
     "quorum": "0.1",
     "threshold": "0.5",
     "voting_period": 100
@@ -24,6 +24,14 @@ pub struct InstantiateMsg {
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     ReceiveNft(Cw721ReceiveMsg),
+    /**
+    {
+        "mint": {
+            "recipient": "1",
+            "amount": "100000000"
+        }
+    }
+     */
     Mint {
         recipient: String,
         amount: Uint128,
@@ -31,7 +39,7 @@ pub enum ExecuteMsg {
     TransferFrom {
         owner: String,
         recipient: String,
-        amount: Option<Uint128>,
+        amount: Uint128,
     },
     UpdateConfig {
         owner: Option<String>,
@@ -85,8 +93,8 @@ pub enum Cw721HookMsg {
 pub enum QueryMsg {
     Config {},
     State {},
-    Staker {
-        address: String,
+    Member {
+        member_id: String,
     },
     Poll {
         poll_id: u64,

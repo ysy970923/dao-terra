@@ -44,14 +44,14 @@ pub struct TokenManager {
     pub share: Uint128,                     // share (usually sqrt(amount))
     pub balance: Uint128,                   // balance (balance of warrant token)
     pub locked_share: Vec<(u64, VoteInfo)>, // maps poll_id to weight voted
-    pub delegate_to: Option<CanonicalAddr>,
-    pub delegated_from: Vec<CanonicalAddr>,
+    pub delegate_to: Option<String>,
+    pub delegated_from: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Poll {
     pub id: u64,
-    pub creator: CanonicalAddr,
+    pub creator: String,
     pub status: PollStatus,
     pub yes_votes: Uint128,
     pub no_votes: Uint128,
