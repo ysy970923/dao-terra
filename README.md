@@ -2,12 +2,7 @@
 - quadratic governance
 - execute
     - member can:
-        - delegate
-        - undelegate
-        - cast vote
-        - cancel vote
-        - create poll
-        - end poll
+        - execute via cw721 contract
     - owner can:
         - mint
         - transfer from
@@ -18,4 +13,16 @@
     - owner can:
         - transfer from
         - mint
-    - member not allowed for execution
+    - member can 
+        - execute_d_a_o with msg:
+            - cast_vote
+            - cancel_vote
+            - create_poll
+            - end_poll
+            - delegate
+            - undelegate
+            - exit
+
+# Structure
+- keep member ledger with cw-721
+- execute in DAO via cw-721 ticket
