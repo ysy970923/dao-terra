@@ -1,1 +1,0 @@
-d4f377ca7d57f05de62b8ef11b96973dd87c94ea0486417e84529df3123f9aed  ./target/wasm32-unknown-unknown/release/dao_gov.wasm

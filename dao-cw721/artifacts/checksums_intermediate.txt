@@ -1,1 +1,0 @@
-7b66b7141a94a13c19121ed625866d50f4e350fa665caeb416dc389234af67c9  ./target/wasm32-unknown-unknown/release/cw721_base.wasm
